@@ -52,9 +52,18 @@ public class GcMetricsCollector {
         for (GarbageCollectorMXBean gc : gcBeans) {
             long count = gc.getCollectionCount();
             long time  = gc.getCollectionTime();
+            collectorNames.add(gc.getName());
+
+            // ZGC has two collector types in JMX:
+            //   "ZGC Minor/Major Cycles" — concurrent work, NOT STW → skip
+            //   "ZGC Minor/Major Pauses" — actual STW pauses → count these only
+            // G1GC collectors are all STW so include all of them
+            String nameLower = gc.getName().toLowerCase();
+            boolean isZgcConcurrent = nameLower.contains("zgc") && nameLower.contains("cycle");
+            if (isZgcConcurrent) continue;
+
             if (count >= 0) totalGcCount += count;
             if (time  >= 0) totalGcTimeMs += time;
-            collectorNames.add(gc.getName());
         }
 
         // Delta since last snapshot (for "pauses in last second" metric)
