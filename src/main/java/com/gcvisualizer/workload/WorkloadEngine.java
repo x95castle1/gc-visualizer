@@ -64,9 +64,9 @@ public class WorkloadEngine {
             latencySamples.set(0);
 
             int intervalMs = switch (profile) {
-                case LOW    -> 100;
-                case MEDIUM -> 50;
-                case HIGH   -> 10;
+                case LOW    -> 200;
+                case MEDIUM -> 100;
+                case HIGH   -> 50;   // slower → objects age → promote to old gen → bigger pauses
             };
 
             workloadTask = scheduler.scheduleAtFixedRate(
@@ -195,21 +195,21 @@ public class WorkloadEngine {
     private void runHighPressure() {
         // Large short-lived allocations
         List<byte[]> shortLived = new ArrayList<>();
-        for (int i = 0; i < 10; i++) {
-            shortLived.add(new byte[5 * 1024 * 1024]); // 5MB each = 50MB/cycle
+        for (int i = 0; i < 5; i++) {
+            shortLived.add(new byte[2 * 1024 * 1024]); // 2MB each = 10MB/cycle
         }
 
         // Grow long-lived set aggressively (fills old gen in G1GC → triggers Full GC)
-        if (longLivedObjects.size() < 400) {
-            longLivedObjects.add(new byte[2 * 1024 * 1024]); // 2MB retained
+        if (longLivedObjects.size() < 300) {
+            longLivedObjects.add(new byte[5 * 1024 * 1024]); // 5MB retained
         } else {
             int evictCount = random.nextInt(10) + 1;
             for (int i = 0; i < evictCount && !longLivedObjects.isEmpty(); i++) {
                 longLivedObjects.remove(0);
             }
-            longLivedObjects.add(new byte[2 * 1024 * 1024]);
+            longLivedObjects.add(new byte[5 * 1024 * 1024]);
         }
 
-        lastAllocatedBytes = (10L * 5 * 1024 * 1024) + (2 * 1024 * 1024);
+        lastAllocatedBytes = (5L * 2 * 1024 * 1024) + (5 * 1024 * 1024);
     }
 }
