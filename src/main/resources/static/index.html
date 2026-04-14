@@ -358,7 +358,7 @@
   <!-- 8 stat cards -->
   <div class="stats-row">
     <div class="stat-card">
-      <div class="stat-label">Recent Pause</div>
+      <div class="stat-label">Avg Pause</div>
       <div class="stat-value orange" id="avg-pause">--</div>
       <div class="stat-sub">ms per GC</div>
     </div>
@@ -597,7 +597,7 @@ function updateUI(d) {
   const s = Math.floor(d.uptimeMs / 1000);
   document.getElementById('uptime-label').textContent = `uptime: ${Math.floor(s/60)}m ${s%60}s`;
 
-  setText('avg-pause',     d.recentAvgPauseMs.toFixed(2) + ' ms');
+  setText('avg-pause',     d.avgPauseMs.toFixed(2) + ' ms');
   setText('recent-pause',  d.recentAvgPauseMs.toFixed(2) + ' ms');
   setText('task-latency',  d.taskLatencyMs.toFixed(2) + ' ms');
   setText('heap-used',     d.heapUsedMb.toFixed(1) + ' MB');
@@ -612,7 +612,7 @@ function updateUI(d) {
   bar.style.width = Math.min(d.heapUsedPercent, 100) + '%';
   bar.style.background = d.heapUsedPercent > 80 ? '#f87171' : d.heapUsedPercent > 60 ? '#fbbf24' : '#a78bfa';
 
-  colorStat('avg-pause',    d.recentAvgPauseMs,         10,  50,  'orange', 'yellow', 'red');
+  colorStat('avg-pause',    d.avgPauseMs,         10,  50,  'orange', 'yellow', 'red');
   colorStat('recent-pause', d.recentAvgPauseMs,    5,  20,  'cyan',   'yellow', 'red');
   colorStat('task-latency', d.taskLatencyMs,       10, 100,  'purple', 'yellow', 'red');
   colorStat('process-cpu',  d.processCpuPercent,   40,  75,  'cpu',    'yellow', 'red');
