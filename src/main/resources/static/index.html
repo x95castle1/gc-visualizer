@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>GC Visualizer — G1GC vs ZGC</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg:        #050810;
+    --surface:   #0c1020;
+    --border:    #1a2040;
+    --g1-color:  #ff6b35;
+    --zgc-color: #00d4ff;
+    --heap-color:#a78bfa;
+    --warn:      #fbbf24;
+    --text:      #e2e8f0;
+    --muted:     #64748b;
+    --success:   #34d399;
+    --danger:    #f87171;
+    --cpu-color: #fb923c;
+    --tput-color:#4ade80;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Syne', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app { position: relative; z-index: 1; padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo h1 {
+    font-size: 1.5rem;
+    font-weight: 800;
+    background: linear-gradient(90deg, var(--zgc-color), var(--g1-color));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .logo p {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-top: 4px;
+  }
+
+  #gc-type-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1rem;
+    font-weight: 700;
+    padding: 6px 16px;
+    border-radius: 6px;
+    border: 2px solid;
+    transition: all 0.4s ease;
+  }
+
+  #gc-type-label.zgc   { color: var(--zgc-color); border-color: var(--zgc-color); background: rgba(0,212,255,0.08); }
+  #gc-type-label.g1gc  { color: var(--g1-color);  border-color: var(--g1-color);  background: rgba(255,107,53,0.08); }
+  #gc-type-label.unknown { color: var(--muted); border-color: var(--muted); }
+
+  #uptime-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--muted);
+    margin-top: 6px;
+    text-align: right;
+  }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+
+  .stat-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.58rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    margin-bottom: 5px;
+  }
+
+  .stat-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.2rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .stat-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+
+  .stat-value.orange { color: var(--g1-color); }
+  .stat-value.cyan   { color: var(--zgc-color); }
+  .stat-value.purple { color: var(--heap-color); }
+  .stat-value.green  { color: var(--success); }
+  .stat-value.yellow { color: var(--warn); }
+  .stat-value.red    { color: var(--danger); }
+  .stat-value.cpu    { color: var(--cpu-color); }
+  .stat-value.tput   { color: var(--tput-color); }
+
+  .controls-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+  }
+
+  .controls-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 12px;
+  }
+
+  .controls-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .profile-group { display: flex; gap: 6px; }
+
+  .profile-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 7px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+  }
+
+  .profile-btn:hover { border-color: var(--zgc-color); color: var(--zgc-color); }
+  .profile-btn.active { border-color: var(--zgc-color); color: var(--zgc-color); background: rgba(0,212,255,0.1); }
+
+  .btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 8px 18px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+  }
+
+  .btn-start { background: var(--success); color: #000; }
+  .btn-stop  { background: var(--danger);  color: #fff; }
+  .btn-spike { background: var(--warn);    color: #000; }
+  .btn:hover { opacity: 0.85; transform: translateY(-1px); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  .status-indicator { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); transition: background 0.3s; }
+  .dot.running { background: var(--success); animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .status-text { font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: var(--muted); }
+
+  .charts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+
+  .chart-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+
+  .chart-panel.wide { grid-column: span 2; }
+
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .panel-title { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
+  .panel-hint  { font-family: 'JetBrains Mono', monospace; font-size: 0.58rem; color: var(--muted); }
+  .hint-good { color: var(--success); }
+  .hint-bad  { color: var(--danger); }
+  .hint-warn { color: var(--warn); }
+
+  .chart-wrap { position: relative; height: 150px; }
+
+  .verdict-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+
+  .verdict-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+  }
+
+  .verdict-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .verdict-title.green  { color: var(--success); border-color: rgba(52,211,153,0.2); }
+  .verdict-title.orange { color: var(--g1-color); border-color: rgba(255,107,53,0.2); }
+
+  .verdict-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+
+  .verdict-list li {
+    font-size: 0.72rem;
+    color: var(--muted);
+    padding-left: 16px;
+    position: relative;
+    line-height: 1.5;
+  }
+
+  .verdict-list li::before { content: '→'; position: absolute; left: 0; color: var(--border); }
+  .verdict-list li strong  { color: var(--text); }
+
+  .drawbacks-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .drawback-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: 2px solid var(--danger);
+    border-radius: 10px;
+    padding: 14px;
+  }
+
+  .drawback-title {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--danger);
+    margin-bottom: 8px;
+  }
+
+  .drawback-desc {
+    font-size: 0.7rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .drawback-desc strong { color: var(--text); }
+
+  .drawback-metric {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.62rem;
+    color: var(--warn);
+    margin-top: 8px;
+    padding: 4px 8px;
+    background: rgba(251,191,36,0.08);
+    border-radius: 4px;
+  }
+
+  .heap-bar-wrap { background: var(--border); border-radius: 4px; height: 5px; margin-top: 6px; overflow: hidden; }
+  .heap-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease, background 0.5s ease; background: var(--heap-color); }
+
+  .log-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .log-feed { font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: var(--muted); height: 80px; overflow-y: auto; display: flex; flex-direction: column-reverse; gap: 3px; }
+  .log-entry { display: flex; gap: 10px; }
+  .log-time { color: var(--border); min-width: 76px; }
+  .log-msg.info  { color: var(--zgc-color); }
+  .log-msg.warn  { color: var(--warn); }
+  .log-msg.spike { color: var(--g1-color); }
+  .log-msg.cpu   { color: var(--cpu-color); }
+
+  @media (max-width: 1100px) {
+    .stats-row { grid-template-columns: repeat(4, 1fr); }
+    .charts-grid { grid-template-columns: 1fr 1fr; }
+    .chart-panel.wide { grid-column: span 1; }
+    .drawbacks-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  @media (max-width: 700px) {
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+    .charts-grid { grid-template-columns: 1fr; }
+    .verdict-grid { grid-template-columns: 1fr; }
+    .drawbacks-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="logo">
+      <h1>GC Visualizer — G1GC vs ZGC</h1>
+      <p>Java 21 · Spring Boot 3 · Live comparison dashboard</p>
+    </div>
+    <div style="text-align:right">
+      <div id="gc-type-label" class="unknown">Detecting GC...</div>
+      <div id="uptime-label">uptime: --</div>
+    </div>
+  </header>
+
+  <!-- 8 stat cards -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">Avg Pause</div>
+      <div class="stat-value orange" id="avg-pause">--</div>
+      <div class="stat-sub">ms per GC</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Recent Pause</div>
+      <div class="stat-value cyan" id="recent-pause">--</div>
+      <div class="stat-sub">ms last 1s</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Task Latency</div>
+      <div class="stat-value purple" id="task-latency">--</div>
+      <div class="stat-sub">STW shows here</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Heap Used</div>
+      <div class="stat-value green" id="heap-used">--</div>
+      <div class="stat-sub" id="heap-max-label">of -- MB</div>
+      <div class="heap-bar-wrap"><div class="heap-bar-fill" id="heap-bar" style="width:0%"></div></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Process CPU</div>
+      <div class="stat-value cpu" id="process-cpu">--</div>
+      <div class="stat-sub">% — ZGC costs more</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">GC Overhead</div>
+      <div class="stat-value yellow" id="gc-overhead">--</div>
+      <div class="stat-sub">% time in GC</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Throughput</div>
+      <div class="stat-value tput" id="tasks-per-sec">--</div>
+      <div class="stat-sub">tasks/sec</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">GC Count</div>
+      <div class="stat-value yellow" id="gc-count">--</div>
+      <div class="stat-sub" id="gc-delta">+0 last sec</div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls-panel">
+    <div class="controls-title">⚡ Workload Controls</div>
+    <div class="controls-row">
+      <div class="profile-group">
+        <button class="profile-btn" id="btn-low"    onclick="setProfile('LOW')">LOW</button>
+        <button class="profile-btn active" id="btn-medium" onclick="setProfile('MEDIUM')">MEDIUM</button>
+        <button class="profile-btn" id="btn-high"   onclick="setProfile('HIGH')">HIGH</button>
+      </div>
+      <button class="btn btn-start" id="btn-start" onclick="startWorkload()">▶ Start</button>
+      <button class="btn btn-stop"  id="btn-stop"  onclick="stopWorkload()" disabled>■ Stop</button>
+      <button class="btn btn-spike" onclick="triggerSpike()">⚡ Spike</button>
+      <div class="status-indicator">
+        <div class="dot" id="status-dot"></div>
+        <div class="status-text" id="status-text">Idle</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts row 1: pause · latency · cpu -->
+  <div class="charts-grid">
+    <div class="chart-panel">
+      <div class="panel-header">
+        <div class="panel-title">GC Pause Time</div>
+        <div class="panel-hint hint-bad">G1GC spikes · ZGC flat</div>
+      </div>
+      <div class="chart-wrap"><canvas id="pauseChart"></canvas></div>
+    </div>
+    <div class="chart-panel">
+      <div class="panel-header">
+        <div class="panel-title">Task Latency</div>
+        <div class="panel-hint hint-bad">Stop-the-world shows as spikes</div>
+      </div>
+      <div class="chart-wrap"><canvas id="latencyChart"></canvas></div>
+    </div>
+    <div class="chart-panel">
+      <div class="panel-header">
+        <div class="panel-title">Process CPU %</div>
+        <div class="panel-hint hint-warn">ZGC uses more — concurrent GC threads</div>
+      </div>
+      <div class="chart-wrap"><canvas id="cpuChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Charts row 2: heap (wide) · throughput -->
+  <div class="charts-grid">
+    <div class="chart-panel wide">
+      <div class="panel-header">
+        <div class="panel-title">Heap Usage</div>
+        <div class="panel-hint">MB · sawtooth = GC collecting · ZGC baseline sits slightly higher</div>
+      </div>
+      <div class="chart-wrap"><canvas id="heapChart"></canvas></div>
+    </div>
+    <div class="chart-panel">
+      <div class="panel-header">
+        <div class="panel-title">Throughput</div>
+        <div class="panel-hint hint-good">G1GC wins — tasks/sec</div>
+      </div>
+      <div class="chart-wrap"><canvas id="throughputChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ZGC Drawbacks -->
+  <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--danger);margin-bottom:10px;">
+    ⚠ ZGC Drawbacks — when NOT to switch
+  </div>
+  <div class="drawbacks-grid">
+    <div class="drawback-card">
+      <div class="drawback-title">Higher CPU usage</div>
+      <div class="drawback-desc">ZGC runs GC threads <strong>concurrently</strong> with your app. On a 2-core machine this is very noticeable — your app gets less CPU.</div>
+      <div class="drawback-metric">Watch: Process CPU % chart — ZGC runs higher</div>
+    </div>
+    <div class="drawback-card">
+      <div class="drawback-title">Lower throughput</div>
+      <div class="drawback-desc">Because GC threads compete for CPU, ZGC completes <strong>fewer tasks per second</strong> than G1GC under the same workload.</div>
+      <div class="drawback-metric">Watch: Throughput chart — G1GC wins here</div>
+    </div>
+    <div class="drawback-card">
+      <div class="drawback-title">Wasted on small heaps</div>
+      <div class="drawback-desc">Below <strong>2GB heap</strong>, G1GC pauses are already small. ZGC's concurrent machinery adds overhead with no meaningful gain.</div>
+      <div class="drawback-metric">Run LOW profile at Xmx512m — both look identical</div>
+    </div>
+    <div class="drawback-card">
+      <div class="drawback-title">Higher memory footprint</div>
+      <div class="drawback-desc">ZGC needs extra heap space for concurrent bookkeeping — roughly <strong>10–20% more memory</strong> at the same load.</div>
+      <div class="drawback-metric">Watch: Heap chart — ZGC baseline sits higher</div>
+    </div>
+  </div>
+
+  <!-- Verdict cards -->
+  <div class="verdict-grid">
+    <div class="verdict-card">
+      <div class="verdict-title green">✓ Switch to ZGC when...</div>
+      <ul class="verdict-list">
+        <li><strong>Heap &gt; 4GB</strong> — G1GC pauses grow with heap, ZGC stays flat</li>
+        <li><strong>p99 latency matters</strong> — APIs, real-time, gaming, trading</li>
+        <li><strong>Large retained set</strong> — ZGC handles old gen concurrently</li>
+        <li><strong>Already on Java 21</strong> — Generational ZGC is production ready</li>
+        <li><strong>Spike tolerance is zero</strong> — you cannot afford any STW pauses</li>
+      </ul>
+    </div>
+    <div class="verdict-card">
+      <div class="verdict-title orange">✗ Stay on G1GC when...</div>
+      <ul class="verdict-list">
+        <li><strong>Heap &lt; 2GB</strong> — ZGC overhead not worth it, pauses already small</li>
+        <li><strong>Batch / overnight jobs</strong> — throughput matters, latency does not</li>
+        <li><strong>CPU constrained</strong> — ZGC's concurrent threads eat your cores</li>
+        <li><strong>High throughput needed</strong> — G1GC completes more work per second</li>
+        <li><strong>Memory is tight</strong> — ZGC uses 10–20% more heap headroom</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="log-panel">
+    <div class="panel-header" style="margin-bottom:8px">
+      <div class="panel-title" style="font-size:0.72rem">Event Log</div>
+    </div>
+    <div class="log-feed" id="log-feed"></div>
+  </div>
+
+</div>
+<script>
+const MAX_POINTS = 60;
+
+const baseOptions = {
+  animation: false,
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: { legend: { display: false } },
+  scales: {
+    x: { display: false },
+    y: {
+      grid: { color: 'rgba(255,255,255,0.04)' },
+      ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 10 } }
+    }
+  }
+};
+
+function makeChart(id, color, label) {
+  const ctx = document.getElementById(id).getContext('2d');
+  return new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: Array(MAX_POINTS).fill(''),
+      datasets: [{ label, data: Array(MAX_POINTS).fill(null), borderColor: color, backgroundColor: color + '15', borderWidth: 2, pointRadius: 0, fill: true, tension: 0.3 }]
+    },
+    options: baseOptions
+  });
+}
+
+const pauseChart      = makeChart('pauseChart',      '#ff6b35', 'Pause ms');
+const latencyChart    = makeChart('latencyChart',    '#a78bfa', 'Latency ms');
+const cpuChart        = makeChart('cpuChart',        '#fb923c', 'CPU %');
+const heapChart       = makeChart('heapChart',       '#00d4ff', 'Heap MB');
+const throughputChart = makeChart('throughputChart', '#4ade80', 'Tasks/sec');
+
+function pushPoint(chart, value) {
+  chart.data.datasets[0].data.push(value);
+  chart.data.labels.push('');
+  if (chart.data.datasets[0].data.length > MAX_POINTS) {
+    chart.data.datasets[0].data.shift();
+    chart.data.labels.shift();
+  }
+  chart.update('none');
+}
+
+let selectedProfile = 'MEDIUM';
+let isRunning = false;
+let gcType = '';
+
+function connect() {
+  const es = new EventSource('/api/metrics/stream');
+  es.onmessage = (e) => updateUI(JSON.parse(e.data));
+  es.onerror = () => {
+    addLog('Connection lost — reconnecting...', 'warn');
+    es.close();
+    setTimeout(connect, 3000);
+  };
+  addLog('Connected to metrics stream', 'info');
+}
+
+function updateUI(d) {
+  if (d.gcType !== gcType) {
+    gcType = d.gcType;
+    const label = document.getElementById('gc-type-label');
+    label.textContent = d.gcType;
+    label.className = d.gcType === 'ZGC' ? 'zgc' : d.gcType === 'G1GC' ? 'g1gc' : 'unknown';
+    const color = d.gcType === 'ZGC' ? '#00d4ff' : '#ff6b35';
+    pauseChart.data.datasets[0].borderColor = color;
+    pauseChart.data.datasets[0].backgroundColor = color + '15';
+    addLog(`GC detected: ${d.gcType} — ${d.collectorNames.join(', ')}`, 'info');
+  }
+
+  const s = Math.floor(d.uptimeMs / 1000);
+  document.getElementById('uptime-label').textContent = `uptime: ${Math.floor(s/60)}m ${s%60}s`;
+
+  setText('avg-pause',     d.avgPauseMs.toFixed(2) + ' ms');
+  setText('recent-pause',  d.recentAvgPauseMs.toFixed(2) + ' ms');
+  setText('task-latency',  d.taskLatencyMs.toFixed(2) + ' ms');
+  setText('heap-used',     d.heapUsedMb.toFixed(1) + ' MB');
+  setText('heap-max-label',`of ${d.heapMaxMb.toFixed(0)} MB`);
+  setText('process-cpu',   d.processCpuPercent.toFixed(1) + '%');
+  setText('gc-overhead',   d.gcOverheadPercent.toFixed(1) + '%');
+  setText('tasks-per-sec', d.tasksPerSecond.toFixed(1));
+  setText('gc-count',      d.totalGcCount);
+  setText('gc-delta',      `+${d.deltaGcCount} last sec`);
+
+  const bar = document.getElementById('heap-bar');
+  bar.style.width = Math.min(d.heapUsedPercent, 100) + '%';
+  bar.style.background = d.heapUsedPercent > 80 ? '#f87171' : d.heapUsedPercent > 60 ? '#fbbf24' : '#a78bfa';
+
+  colorStat('avg-pause',    d.avgPauseMs,         10,  50,  'orange', 'yellow', 'red');
+  colorStat('recent-pause', d.recentAvgPauseMs,    5,  20,  'cyan',   'yellow', 'red');
+  colorStat('task-latency', d.taskLatencyMs,       10, 100,  'purple', 'yellow', 'red');
+  colorStat('process-cpu',  d.processCpuPercent,   40,  75,  'cpu',    'yellow', 'red');
+  colorStat('gc-overhead',  d.gcOverheadPercent,    5,  20,  'green',  'yellow', 'red');
+
+  if (d.workloadRunning !== isRunning) {
+    isRunning = d.workloadRunning;
+    updateControlState();
+  }
+
+  pushPoint(pauseChart,      d.avgPauseMs);
+  pushPoint(latencyChart,    d.taskLatencyMs);
+  pushPoint(cpuChart,        d.processCpuPercent);
+  pushPoint(heapChart,       d.heapUsedMb);
+  pushPoint(throughputChart, d.tasksPerSecond);
+
+  if (d.recentAvgPauseMs > 50)  addLog(`⚠ High GC pause: ${d.recentAvgPauseMs.toFixed(1)}ms — Stop-the-world event`, 'warn');
+  if (d.processCpuPercent > 80) addLog(`⚠ High CPU: ${d.processCpuPercent.toFixed(1)}% — GC concurrent threads competing`, 'cpu');
+  if (d.gcOverheadPercent > 20) addLog(`⚠ GC overhead ${d.gcOverheadPercent.toFixed(1)}% — too much time in GC`, 'warn');
+}
+
+function setText(id, val) { document.getElementById(id).textContent = val; }
+
+function colorStat(id, val, low, high, c1, c2, c3) {
+  document.getElementById(id).className = 'stat-value ' + (val < low ? c1 : val < high ? c2 : c3);
+}
+
+function setProfile(p) {
+  selectedProfile = p;
+  ['LOW','MEDIUM','HIGH'].forEach(x =>
+    document.getElementById('btn-' + x.toLowerCase()).classList.toggle('active', x === p)
+  );
+}
+
+async function startWorkload() {
+  await fetch(`/api/stress/start?profile=${selectedProfile}`, { method: 'POST' });
+  addLog(`Workload started — profile: ${selectedProfile}`, 'info');
+  isRunning = true;
+  updateControlState();
+}
+
+async function stopWorkload() {
+  await fetch('/api/stress/stop', { method: 'POST' });
+  addLog('Workload stopped — long-lived objects released', 'info');
+  isRunning = false;
+  updateControlState();
+}
+
+async function triggerSpike() {
+  await fetch('/api/stress/spike', { method: 'POST' });
+  addLog('⚡ Spike triggered — 50MB burst · watch for pause spike', 'spike');
+}
+
+function updateControlState() {
+  document.getElementById('btn-start').disabled = isRunning;
+  document.getElementById('btn-stop').disabled  = !isRunning;
+  document.getElementById('status-dot').className  = 'dot' + (isRunning ? ' running' : '');
+  document.getElementById('status-text').textContent = isRunning ? `Running · ${selectedProfile}` : 'Idle';
+}
+
+const logFeed  = document.getElementById('log-feed');
+const logDedup = new Set();
+
+function addLog(msg, type = 'info') {
+  const key = msg + Math.floor(Date.now() / 3000);
+  if (logDedup.has(key)) return;
+  logDedup.add(key);
+  if (logDedup.size > 200) logDedup.clear();
+  const time = new Date().toTimeString().slice(0,8);
+  const el = document.createElement('div');
+  el.className = 'log-entry';
+  el.innerHTML = `<span class="log-time">${time}</span><span class="log-msg ${type}">${msg}</span>`;
+  logFeed.prepend(el);
+  if (logFeed.children.length > 60) logFeed.lastChild.remove();
+}
+
+connect();
+</script>
+</body>
+</html>
