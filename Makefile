@@ -8,7 +8,8 @@ stop: ## Stop all gc-visualizer containers
 
 .PHONY: gc-visualizer
 gc-visualizer: ## executes a docker build for gc-visualizer.
-	@docker build . -t gc-visualizer:latest; \
+	@./mvnw clean package -DskipTests; \
+    docker build . -t gc-visualizer:latest;
 
 .PHONY: all-logs
 all-logs: ## Attach to the firehose of logs
