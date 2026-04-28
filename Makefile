@@ -22,6 +22,12 @@ status: ## View status of services
 select-service: # Select a service using fzf, outputs to stdout
 	@docker compose ps --all --format "{{.Service}}|{{.Status}}" | column -t -s '|' | fzf --height 40% --reverse | awk '{print $$1}'
 
+.PHONY: wipe-logs
+wipe-logs: ## deletes the logs
+	@echo "✓ Wiping logs like a boss"; \
+	rm -rf ./logs/*; \
+
+
 .PHONY: logs
 logs: ## Select a service and view its logs\nalternatively, run make logs:servicename to skip the selection step
 	@if [ "$(word 2,$(MAKECMDGOALS))" != "" ]; then \
