@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: "g1gc"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["visualizer-g1:8080"]
+        labels:
+          gc_type: "G1GC"
+
+  - job_name: "zgc-generational"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["visualizer-zgc-gen:8080"]
+        labels:
+          gc_type: "ZGC Generational"
+
+  - job_name: "zgc-non-generational"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["visualizer-zgc-plain:8080"]
+        labels:
+          gc_type: "ZGC Non-Generational"

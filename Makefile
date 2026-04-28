@@ -8,10 +8,12 @@ start:  ## start all gc-visualizer containers
 stop: ## Stop all gc-visualizer containers
 	@docker compose down --remove-orphans
 
-.PHONY: gc-visualizer
+.PHONY: gc-visualizer build
 gc-visualizer: ## executes a docker build for gc-visualizer.
 	@./mvnw clean package -DskipTests; \
     docker build . -t gc-visualizer:latest;
+
+build: gc-visualizer
 
 .PHONY: all-logs
 all-logs: ## Attach to the firehose of logs
@@ -45,6 +47,18 @@ open-ui: ## Open all 3 GC dashboards in browser tabs
 	@$(OPEN_CMD) http://localhost:8081
 	@$(OPEN_CMD) http://localhost:8082
 	@$(OPEN_CMD) http://localhost:8083
+
+.PHONY: open-grafana
+open-grafana: ## Open Grafana dashboard (admin/gcviz)
+	@echo "📊 Opening Grafana at http://localhost:3000 (admin/gcviz)..."
+	@$(OPEN_CMD) http://localhost:3000
+
+.PHONY: open-all
+open-all: open-ui open-grafana ## Open all 3 GC dashboards + Grafana
+
+.PHONY: k6
+k6: ## Run k6 load test — 1min HIGH mode + spikes on all 3 GC apps
+	@k6 run k6/gc-stress.js
 
 # Based on http://marmelab.com/blog/2016/02/29/auto-documented-makefile.html
 help: ## Print help for each make target

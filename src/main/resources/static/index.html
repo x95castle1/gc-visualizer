@@ -462,57 +462,6 @@
     </div>
   </div>
 
-  <!-- ZGC Drawbacks -->
-  <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--danger);margin-bottom:10px;">
-    ⚠ ZGC Drawbacks — when NOT to switch
-  </div>
-  <div class="drawbacks-grid">
-    <div class="drawback-card">
-      <div class="drawback-title">Higher CPU usage</div>
-      <div class="drawback-desc">ZGC runs GC threads <strong>concurrently</strong> with your app. On a 2-core machine this is very noticeable — your app gets less CPU.</div>
-      <div class="drawback-metric">Watch: Process CPU % chart — ZGC runs higher</div>
-    </div>
-    <div class="drawback-card">
-      <div class="drawback-title">Lower throughput</div>
-      <div class="drawback-desc">Because GC threads compete for CPU, ZGC completes <strong>fewer tasks per second</strong> than G1GC under the same workload.</div>
-      <div class="drawback-metric">Watch: Throughput chart — G1GC wins here</div>
-    </div>
-    <div class="drawback-card">
-      <div class="drawback-title">Wasted on small heaps</div>
-      <div class="drawback-desc">Below <strong>2GB heap</strong>, G1GC pauses are already small. ZGC's concurrent machinery adds overhead with no meaningful gain.</div>
-      <div class="drawback-metric">Run LOW profile at Xmx512m — both look identical</div>
-    </div>
-    <div class="drawback-card">
-      <div class="drawback-title">Higher memory footprint</div>
-      <div class="drawback-desc">ZGC needs extra heap space for concurrent bookkeeping — roughly <strong>10–20% more memory</strong> at the same load.</div>
-      <div class="drawback-metric">Watch: Heap chart — ZGC baseline sits higher</div>
-    </div>
-  </div>
-
-  <!-- Verdict cards -->
-  <div class="verdict-grid">
-    <div class="verdict-card">
-      <div class="verdict-title green">✓ Switch to ZGC when...</div>
-      <ul class="verdict-list">
-        <li><strong>Heap &gt; 4GB</strong> — G1GC pauses grow with heap, ZGC stays flat</li>
-        <li><strong>p99 latency matters</strong> — APIs, real-time, gaming, trading</li>
-        <li><strong>Large retained set</strong> — ZGC handles old gen concurrently</li>
-        <li><strong>Already on Java 21</strong> — Generational ZGC is production ready</li>
-        <li><strong>Spike tolerance is zero</strong> — you cannot afford any STW pauses</li>
-      </ul>
-    </div>
-    <div class="verdict-card">
-      <div class="verdict-title orange">✗ Stay on G1GC when...</div>
-      <ul class="verdict-list">
-        <li><strong>Heap &lt; 2GB</strong> — ZGC overhead not worth it, pauses already small</li>
-        <li><strong>Batch / overnight jobs</strong> — throughput matters, latency does not</li>
-        <li><strong>CPU constrained</strong> — ZGC's concurrent threads eat your cores</li>
-        <li><strong>High throughput needed</strong> — G1GC completes more work per second</li>
-        <li><strong>Memory is tight</strong> — ZGC uses 10–20% more heap headroom</li>
-      </ul>
-    </div>
-  </div>
-
   <!-- Log -->
   <div class="log-panel">
     <div class="panel-header" style="margin-bottom:8px">
