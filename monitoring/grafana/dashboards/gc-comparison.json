@@ -139,7 +139,7 @@
       "pluginVersion": "11.5.1",
       "targets": [
         {
-          "expr": "sum by(gc_type)(jvm_gc_pause_seconds_sum{gc_type=~\"$gc_type\"})",
+          "expr": "sum by(gc_type)(jvm_gc_pause_seconds_sum{gc_type=~\"$gc_type\", gc!~\".*Cycles\"})",
           "legendFormat": "{{gc_type}}",
           "refId": "A"
         }
@@ -252,7 +252,7 @@
       "pluginVersion": "11.5.1",
       "targets": [
         {
-          "expr": "sum by(gc_type)(jvm_gc_pause_seconds_count{gc_type=~\"$gc_type\"})",
+          "expr": "sum by(gc_type)(jvm_gc_pause_seconds_count{gc_type=~\"$gc_type\", gc!~\".*Cycles\"})",
           "legendFormat": "{{gc_type}}",
           "refId": "A"
         }
@@ -524,7 +524,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum by(gc_type)(rate(jvm_gc_pause_seconds_count{gc_type=~\"$gc_type\"}[30s]))",
+          "expr": "sum by(gc_type)(rate(jvm_gc_pause_seconds_count{gc_type=~\"$gc_type\", gc!~\".*Cycles\"}[30s]))",
           "legendFormat": "{{gc_type}}",
           "range": true,
           "refId": "A"
@@ -666,7 +666,7 @@
       "pluginVersion": "11.5.1",
       "targets": [
         {
-          "expr": "sum by(gc_type)(rate(jvm_gc_pause_seconds_sum{gc_type=~\"$gc_type\"}[30s])) / (sum by(gc_type)(rate(jvm_gc_pause_seconds_count{gc_type=~\"$gc_type\"}[30s])) > 0) * 1000",
+          "expr": "sum by(gc_type)(rate(jvm_gc_pause_seconds_sum{gc_type=~\"$gc_type\", gc!~\".*Cycles\"}[30s])) / (sum by(gc_type)(rate(jvm_gc_pause_seconds_count{gc_type=~\"$gc_type\", gc!~\".*Cycles\"}[30s])) > 0) * 1000",
           "legendFormat": "{{gc_type}}",
           "refId": "A"
         }
@@ -1337,7 +1337,7 @@
       "pluginVersion": "11.5.1",
       "targets": [
         {
-          "expr": "sum by(gc_type)(rate(jvm_gc_pause_seconds_sum{gc_type=~\"$gc_type\"}[30s])) * 100",
+          "expr": "sum by(gc_type)(rate(jvm_gc_pause_seconds_sum{gc_type=~\"$gc_type\", gc!~\".*Cycles\"}[30s])) * 100",
           "legendFormat": "{{gc_type}}",
           "refId": "A"
         }
@@ -1922,7 +1922,7 @@
       "pluginVersion": "11.5.1",
       "targets": [
         {
-          "expr": "sum by(gc_type)(jvm_gc_pause_seconds_count{gc_type=~\"$gc_type\"})",
+          "expr": "sum by(gc_type)(jvm_gc_pause_seconds_count{gc_type=~\"$gc_type\", gc!~\".*Cycles\"})",
           "legendFormat": "{{gc_type}}",
           "refId": "A"
         }
@@ -2075,7 +2075,7 @@
       "pluginVersion": "11.5.1",
       "targets": [
         {
-          "expr": "sum by(gc_type)(jvm_gc_pause_seconds_sum{gc_type=~\"$gc_type\"})",
+          "expr": "sum by(gc_type)(jvm_gc_pause_seconds_sum{gc_type=~\"$gc_type\", gc!~\".*Cycles\"})",
           "legendFormat": "{{gc_type}}",
           "refId": "A"
         }
