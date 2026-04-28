@@ -1,0 +1,39 @@
+services:
+  # G1GC (Mimicking run-g1gc.sh --profile high)
+  visualizer-g1:
+    build: .
+    image: gc-visualizer:latest
+    container_name: gc-v-g1gc
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - JAVA_OPTS=-XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Xms1g -Xmx2g -Xlog:gc*:file=logs/g1gc-high.log:time,uptime,level,tags
+    restart: unless-stopped
+
+  # Generational ZGC (Mimicking run-zgc.sh --profile high)
+  visualizer-zgc-gen:
+    build: .
+    image: gc-visualizer:latest
+    container_name: gc-v-zgc-gen
+    ports:
+      - "8082:8080"
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - JAVA_OPTS=-XX:+UseZGC -XX:+ZGenerational -Xms1g -Xmx2g -Xlog:gc*:file=logs/zgc-gen-high.log:time,uptime,level,tags
+    restart: unless-stopped
+
+  # Plain ZGC (Non-Generational comparison)
+  visualizer-zgc-plain:
+    build: .
+    image: gc-visualizer:latest
+    container_name: gc-v-zgc-plain
+    ports:
+      - "8083:8080"
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - JAVA_OPTS=-XX:+UseZGC -XX:-ZGenerational -Xms1g -Xmx2g -Xlog:gc*:file=logs/zgc-plain-high.log:time,uptime,level,tags
+    restart: unless-stopped

@@ -6,41 +6,22 @@ import java.lang.management.*;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * GcMetricsCollector reads live GC data directly from the JVM via JMX.
- *
- * Key metrics we expose:
- * - Heap used / max
- * - GC pause count and cumulative time (per collector)
- * - Which GC is active (G1GC vs ZGC)
- * - Derived: average pause time, pause rate
- * - CPU usage (process + system) — shows ZGC's concurrent overhead
- * - Thread count — shows GC thread competition
- * - GC overhead % — time spent in GC vs total uptime
- *
- * This data is pushed to the frontend every second via SSE.
- */
 @Service
 public class GcMetricsCollector {
 
     private final MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
     private final List<GarbageCollectorMXBean> gcBeans = ManagementFactory.getGarbageCollectorMXBeans();
+    private final List<MemoryPoolMXBean> poolBeans = ManagementFactory.getMemoryPoolMXBeans();
     private final RuntimeMXBean runtimeBean = ManagementFactory.getRuntimeMXBean();
     private final ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
 
-    // Cast to com.sun API for CPU metrics — available on all major JVMs
     private final com.sun.management.OperatingSystemMXBean osBean =
-        (com.sun.management.OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
+            (com.sun.management.OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
 
-    // Snapshot previous counts to compute deltas
     private long prevGcCount = 0;
     private long prevGcTimeMs = 0;
-
-    // For GC overhead % calculation
     private long prevUptimeMs = 0;
     private long prevGcCpuTimeMs = 0;
-
-    // ─── Public API ────────────────────────────────────────────────────────────
 
     public GcSnapshot snapshot() {
         MemoryUsage heap = memoryBean.getHeapMemoryUsage();
@@ -54,11 +35,8 @@ public class GcMetricsCollector {
             long time  = gc.getCollectionTime();
             collectorNames.add(gc.getName());
 
-            // ZGC has two collector types in JMX:
-            //   "ZGC Minor/Major Cycles" — concurrent work, NOT STW → skip
-            //   "ZGC Minor/Major Pauses" — actual STW pauses → count these only
-            // G1GC collectors are all STW so include all of them
             String nameLower = gc.getName().toLowerCase();
+            // Skip concurrent cycle time to keep pause metrics accurate
             boolean isZgcConcurrent = nameLower.contains("zgc") && nameLower.contains("cycle");
             if (isZgcConcurrent) continue;
 
@@ -66,98 +44,94 @@ public class GcMetricsCollector {
             if (time  >= 0) totalGcTimeMs += time;
         }
 
-        // Delta since last snapshot (for "pauses in last second" metric)
         long deltaCount  = totalGcCount  - prevGcCount;
         long deltaTimeMs = totalGcTimeMs - prevGcTimeMs;
         prevGcCount  = totalGcCount;
         prevGcTimeMs = totalGcTimeMs;
 
-        double avgPauseMs = (totalGcCount > 0)
-            ? (double) totalGcTimeMs / totalGcCount
-            : 0.0;
+        double avgPauseMs = (totalGcCount > 0) ? (double) totalGcTimeMs / totalGcCount : 0.0;
+        double recentAvgPauseMs = (deltaCount > 0) ? (double) deltaTimeMs / deltaCount : 0.0;
 
-        double recentAvgPauseMs = (deltaCount > 0)
-            ? (double) deltaTimeMs / deltaCount
-            : 0.0;
-
-        // CPU metrics
-        // processCpuLoad: 0.0–1.0 fraction of CPU used by this JVM process
         double processCpuPercent = Math.max(0, osBean.getProcessCpuLoad() * 100.0);
-
-        // systemCpuLoad: overall machine CPU usage
         double systemCpuPercent = Math.max(0, osBean.getCpuLoad() * 100.0);
 
-        // GC overhead: what % of elapsed time was spent doing GC in the last interval
         long uptimeMs = runtimeBean.getUptime();
         long deltaUptimeMs = uptimeMs - prevUptimeMs;
         long deltaGcCpuMs  = totalGcTimeMs - prevGcCpuTimeMs;
         double gcOverheadPercent = (deltaUptimeMs > 0)
-            ? Math.min(100.0, (deltaGcCpuMs * 100.0) / deltaUptimeMs)
-            : 0.0;
+                ? Math.min(100.0, (deltaGcCpuMs * 100.0) / deltaUptimeMs)
+                : 0.0;
         prevUptimeMs    = uptimeMs;
         prevGcCpuTimeMs = totalGcTimeMs;
 
-        // Thread count — ZGC spins up more concurrent GC threads
         int threadCount = threadBean.getThreadCount();
 
+        // Get pool names for detection
+        List<String> poolNames = poolBeans.stream().map(MemoryPoolMXBean::getName).toList();
+
         return new GcSnapshot(
-            heap.getUsed(),
-            heap.getCommitted(),
-            heap.getMax(),
-            totalGcCount,
-            totalGcTimeMs,
-            deltaCount,
-            deltaTimeMs,
-            avgPauseMs,
-            recentAvgPauseMs,
-            collectorNames,
-            detectGcType(collectorNames),
-            uptimeMs,
-            processCpuPercent,
-            systemCpuPercent,
-            gcOverheadPercent,
-            threadCount
+                heap.getUsed(),
+                heap.getCommitted(),
+                heap.getMax(),
+                totalGcCount,
+                totalGcTimeMs,
+                deltaCount,
+                deltaTimeMs,
+                avgPauseMs,
+                recentAvgPauseMs,
+                collectorNames,
+                detectGcType(collectorNames, poolNames), // Pass pools here
+                uptimeMs,
+                processCpuPercent,
+                systemCpuPercent,
+                gcOverheadPercent,
+                threadCount
         );
     }
 
     public String getActiveGcName() {
-        List<String> names = gcBeans.stream()
-            .map(GarbageCollectorMXBean::getName)
-            .toList();
-        return detectGcType(names);
+        List<String> names = gcBeans.stream().map(GarbageCollectorMXBean::getName).toList();
+        List<String> pools = poolBeans.stream().map(MemoryPoolMXBean::getName).toList();
+        return detectGcType(names, pools);
     }
 
-    // ─── Internal ──────────────────────────────────────────────────────────────
+    private String detectGcType(List<String> collectorNames, List<String> poolNames) {
+        String collectors = String.join(" ", collectorNames).toLowerCase();
+        String pools = String.join(" ", poolNames).toLowerCase();
 
-    private String detectGcType(List<String> names) {
-        String joined = String.join(" ", names).toLowerCase();
-        if (joined.contains("zgc"))   return "ZGC";
-        if (joined.contains("g1"))    return "G1GC";
-        if (joined.contains("shenandoah")) return "Shenandoah";
-        if (joined.contains("parallel"))   return "Parallel GC";
-        if (joined.contains("serial"))     return "Serial GC";
+        if (collectors.contains("zgc")) {
+            // Generational ZGC creates specific "Young" and "Old" pools.
+            // Non-generational ZGC uses a single "ZGC Heap" pool.
+            if (pools.contains("young") || pools.contains("old")) {
+                return "ZGC (Generational)";
+            }
+            return "ZGC (Non-Generational)";
+        }
+
+        if (collectors.contains("g1"))    return "G1GC";
+        if (collectors.contains("shenandoah")) return "Shenandoah";
+        if (collectors.contains("parallel"))   return "Parallel GC";
+        if (collectors.contains("serial"))     return "Serial GC";
         return "Unknown GC";
     }
 
-    // ─── Snapshot record ───────────────────────────────────────────────────────
-
     public record GcSnapshot(
-        long   heapUsedBytes,
-        long   heapCommittedBytes,
-        long   heapMaxBytes,
-        long   totalGcCount,
-        long   totalGcTimeMs,
-        long   deltaGcCount,
-        long   deltaGcTimeMs,
-        double avgPauseMs,
-        double recentAvgPauseMs,
-        List<String> collectorNames,
-        String gcType,
-        long   uptimeMs,
-        double processCpuPercent,   // CPU used by this JVM process
-        double systemCpuPercent,    // overall machine CPU
-        double gcOverheadPercent,   // % of time spent in GC — key ZGC cost metric
-        int    threadCount          // JVM thread count — rises with ZGC concurrent threads
+            long   heapUsedBytes,
+            long   heapCommittedBytes,
+            long   heapMaxBytes,
+            long   totalGcCount,
+            long   totalGcTimeMs,
+            long   deltaGcCount,
+            long   deltaGcTimeMs,
+            double avgPauseMs,
+            double recentAvgPauseMs,
+            List<String> collectorNames,
+            String gcType,
+            long   uptimeMs,
+            double processCpuPercent,
+            double systemCpuPercent,
+            double gcOverheadPercent,
+            int    threadCount
     ) {
         public double heapUsedMb()      { return heapUsedBytes      / (1024.0 * 1024.0); }
         public double heapCommittedMb() { return heapCommittedBytes / (1024.0 * 1024.0); }
