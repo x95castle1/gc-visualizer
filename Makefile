@@ -60,6 +60,10 @@ open-all: open-ui open-grafana ## Open all 3 GC dashboards + Grafana
 k6: ## Run k6 load test — 1min HIGH mode + spikes on all 3 GC apps
 	@k6 run k6/gc-stress.js
 
+.PHONY: k6-long
+k6-long: ## Run k6 load test — 10min HIGH mode + spikes on all 3 GC apps
+	@k6 run k6/gc-stress-long.js
+
 # Based on http://marmelab.com/blog/2016/02/29/auto-documented-makefile.html
 help: ## Print help for each make target
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {gsub(/\\n/, "\n" sprintf("%26s", " "));printf "\033[36m%-25s\033[0m %s\n\n", $$1, $$2}'

@@ -5,7 +5,7 @@ export const options = {
     steady_load: {
       executor: "constant-vus",
       vus: 6,
-      duration: "1m",
+      duration: "10m",
       exec: "steadyLoad",
     },
     spike_bursts: {
@@ -25,6 +25,7 @@ export function setup() { startWorkloads(); }
 export function teardown() { stopWorkloads(); }
 export function steadyLoad() { _steadyLoad(); }
 
+// Spikes every ~45-60s across the 10m run
 export function spikeBursts() {
-  fireSpikes([10, 25, 40, 52]);
+  fireSpikes([30, 75, 120, 180, 240, 300, 345, 390, 450, 510, 560]);
 }
