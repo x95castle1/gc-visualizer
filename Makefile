@@ -1,3 +1,5 @@
+OPEN_CMD := open
+
 .PHONY: start
 start:  ## start all gc-visualizer containers
 	@docker compose up -d --remove-orphans
@@ -36,6 +38,13 @@ logs: ## Select a service and view its logs\nalternatively, run make logs:servic
 	else \
 		docker compose logs -f $$(make select-service); \
 	fi
+
+.PHONY: open-ui
+open-ui: ## Open all 3 GC dashboards in browser tabs
+	@echo "🚀 Opening G1GC (8081), Gen-ZGC (8082), and Plain-ZGC (8083)..."
+	@$(OPEN_CMD) http://localhost:8081
+	@$(OPEN_CMD) http://localhost:8082
+	@$(OPEN_CMD) http://localhost:8083
 
 # Based on http://marmelab.com/blog/2016/02/29/auto-documented-makefile.html
 help: ## Print help for each make target
