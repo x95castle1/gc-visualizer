@@ -1,5 +1,7 @@
 OPEN_CMD := open
 
+LIST_GC_LOGS = ls logs/*.log* | sed 's/\.log.*//' | sed 's/logs\///' | sort -u
+
 .PHONY: start
 start:  ## start all gc-visualizer containers
 	@docker compose up -d --remove-orphans
@@ -63,6 +65,18 @@ k6: ## Run k6 load test — 1min HIGH mode + spikes on all 3 GC apps
 .PHONY: k6-long
 k6-long: ## Run k6 load test — 10min HIGH mode + spikes on all 3 GC apps
 	@k6 run k6/gc-stress-long.js
+
+.PHONY: tail-gc
+tail-gc: ## Select a GC log type and tail it
+	@SELECTED=$$( $(LIST_GC_LOGS) | fzf --header "Select GC Log to Tail" ); \
+	if [ -n "$$SELECTED" ]; then \
+		echo "Tailing logs/$$SELECTED.log..."; \
+		tail -f logs/$$SELECTED.log; \
+	fi
+
+# Specific shortcut version (e.g., make tail:g1gc-high)
+tail-gc-%:
+	tail -f logs/$*.log
 
 # Based on http://marmelab.com/blog/2016/02/29/auto-documented-makefile.html
 help: ## Print help for each make target

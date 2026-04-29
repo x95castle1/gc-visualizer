@@ -9,7 +9,7 @@ services:
     volumes:
       - ./logs:/app/logs
     environment:
-      - JAVA_OPTS=-XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Xms1g -Xmx2g -Xlog:gc*:file=logs/g1gc-high.log:time,uptime,level,tags
+      - JAVA_OPTS=-XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Xms1g -Xmx2g -Xlog:gc*:file=logs/g1gc.log:time,uptime,level,tags
     restart: unless-stopped
 
   # Generational ZGC (Mimicking run-zgc.sh --profile high)
@@ -22,7 +22,7 @@ services:
     volumes:
       - ./logs:/app/logs
     environment:
-      - JAVA_OPTS=-XX:+UseZGC -XX:+ZGenerational -Xms1g -Xmx2g -Xlog:gc*:file=logs/zgc-gen-high.log:time,uptime,level,tags
+      - JAVA_OPTS=-XX:+UseZGC -XX:+ZGenerational -Xms1g -Xmx2g -Xlog:gc*:file=logs/zgc-gen.log:time,uptime,level,tags
     restart: unless-stopped
 
   # Plain ZGC (Non-Generational comparison)
@@ -35,7 +35,7 @@ services:
     volumes:
       - ./logs:/app/logs
     environment:
-      - JAVA_OPTS=-XX:+UseZGC -XX:-ZGenerational -Xms1g -Xmx2g -Xlog:gc*:file=logs/zgc-plain-high.log:time,uptime,level,tags
+      - JAVA_OPTS=-XX:+UseZGC -XX:-ZGenerational -Xms1g -Xmx2g -Xlog:gc*:file=logs/zgc-plain.log:time,uptime,level,tags
     restart: unless-stopped
 
   prometheus:
@@ -70,3 +70,53 @@ services:
     restart: unless-stopped
     depends_on:
       - prometheus
+
+  log-streamer:
+    image: node:18-alpine
+    container_name: gc-log-streamer
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./logs:/app/logs:ro
+    command:
+      - node
+      - -e
+      - |
+        const http = require('http');
+        const { spawn } = require('child_process');
+        const url = require('url');
+        http.createServer((req, res) => {
+          const queryObject = url.parse(req.url, true).query;
+          const logFile = queryObject.file || 'g1gc.log';
+        
+          res.writeHead(200, { 
+            'Content-Type': 'text/plain', 
+            'Transfer-Encoding': 'chunked',
+            'Access-Control-Allow-Origin': '*' 
+          });
+        
+          console.log('Filtering Pauses for:', logFile);
+          
+          // logic if you want to tail all the logs.
+          // console.log('Tailing:', logFile);
+          // const tail = spawn('tail', ['-F', '/app/logs/' + logFile]);
+          // tail.stdout.on('data', (chunk) => res.write(chunk));
+          
+          const tail = spawn('tail', ['-F', '/app/logs/' + logFile]);
+        
+          tail.stdout.on('data', (chunk) => {
+            const lines = chunk.toString().split('\n');
+            // Re-apply the Pause filter in JavaScript
+            const filtered = lines.filter(line => line.includes('Pause')).join('\n');
+        
+            if (filtered.trim().length > 0) {
+              res.write(filtered + '\n');
+            }
+          });
+        
+          req.on('close', () => {
+            console.log('Client disconnected, killing tail');
+            tail.kill();
+          });
+        }).listen(3001);
+        

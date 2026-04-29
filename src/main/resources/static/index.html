@@ -470,6 +470,21 @@
     <div class="log-feed" id="log-feed"></div>
   </div>
 
+  <div class="log-container" style="margin-top: 20px;">
+    <h3>Live GC Pauses</h3>
+    <pre id="gc-log-stream" style="
+        background: #1e1e1e;
+        color: #00ff00;
+        padding: 15px;
+        height: 400px;
+        overflow-y: auto;
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+        border-radius: 5px;
+        border: 1px solid #444;
+    ">Waiting for GC events...</pre>
+  </div>
+
 </div>
 <script>
 const MAX_POINTS = 60;
@@ -540,6 +555,11 @@ function updateUI(d) {
     const color = d.gcType === 'ZGC' ? '#00d4ff' : '#ff6b35';
     pauseChart.data.datasets[0].borderColor = color;
     pauseChart.data.datasets[0].backgroundColor = color + '15';
+    const targetFile = GC_FILE_MAP[d.gcType];
+    if (targetFile) {
+      console.log(`Auto-switching log stream to: ${targetFile}`);
+      startGCStream(targetFile);
+    }
     addLog(`GC detected: ${d.gcType} — ${d.collectorNames.join(', ')}`, 'info');
   }
 
@@ -637,6 +657,61 @@ function addLog(msg, type = 'info') {
   logFeed.prepend(el);
   if (logFeed.children.length > 60) logFeed.lastChild.remove();
 }
+
+// Map the display names to your actual filenames
+const GC_FILE_MAP = {
+  'ZGC (Generational)': 'zgc-gen.log',
+  'ZGC (Non-Generational)': 'zgc-plain.log',
+  'G1GC': 'g1gc.log'
+};
+
+let currentLogReader = null; // Global variable to track the stream
+
+async function startGCStream(fileName) {
+  const logElement = document.getElementById('gc-log-stream');
+  const MAX_LINES = 100;
+
+  // 1. Kill the existing stream if it exists
+  if (currentLogReader) {
+    console.log("Closing previous log stream...");
+    await currentLogReader.cancel();
+  }
+
+  try {
+    const response = await fetch(`http://localhost:3001?file=${fileName}`);
+    currentLogReader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    // Clear the box for the new log type
+    logElement.textContent = `--- Switched to ${fileName} ---\n`;
+
+    while (true) {
+      const { value, done } = await currentLogReader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split('\n');
+
+      lines.forEach(line => {
+        if (!line.trim()) return;
+        logElement.textContent += line + '\n';
+
+        const currentLines = logElement.textContent.split('\n');
+        if (currentLines.length > MAX_LINES) {
+          logElement.textContent = currentLines.slice(-MAX_LINES).join('\n');
+        }
+      });
+      logElement.scrollTop = logElement.scrollHeight;
+    }
+  } catch (error) {
+    // If the user manually stops the stream, we don't want to spam the console
+    if (error.name !== 'AbortError') {
+      console.error("Stream Error:", error);
+    }
+  }
+}
+
+document.addEventListener('DOMContentLoaded', startGCStream);
 
 connect();
 </script>
