@@ -1,0 +1,104 @@
+// ── GC log files ────────────────────────────────────────────────
+
+local.file_match "g1gc" {
+  path_targets = [{
+    "__path__"   = "/var/log/gc-logs/g1gc.log",
+    "gc_type"    = "G1GC",
+    "log_source" = "gc",
+    "job"        = "gc-logs",
+  }]
+}
+
+loki.source.file "g1gc" {
+  targets    = local.file_match.g1gc.targets
+  forward_to = [loki.write.default.receiver]
+}
+
+local.file_match "zgc_gen" {
+  path_targets = [{
+    "__path__"   = "/var/log/gc-logs/zgc-gen.log",
+    "gc_type"    = "ZGC Generational",
+    "log_source" = "gc",
+    "job"        = "gc-logs",
+  }]
+}
+
+loki.source.file "zgc_gen" {
+  targets    = local.file_match.zgc_gen.targets
+  forward_to = [loki.write.default.receiver]
+}
+
+local.file_match "zgc_plain" {
+  path_targets = [{
+    "__path__"   = "/var/log/gc-logs/zgc-plain.log",
+    "gc_type"    = "ZGC Non-Generational",
+    "log_source" = "gc",
+    "job"        = "gc-logs",
+  }]
+}
+
+loki.source.file "zgc_plain" {
+  targets    = local.file_match.zgc_plain.targets
+  forward_to = [loki.write.default.receiver]
+}
+
+// ── Docker stdout from Spring Boot containers ───────────────────
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "spring_apps" {
+  targets = discovery.docker.containers.targets
+
+  // Keep only the three visualizer containers
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(gc-v-g1gc|gc-v-zgc-gen|gc-v-zgc-plain)"
+    action        = "keep"
+  }
+
+  // Map container name → gc_type label
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/gc-v-g1gc"
+    target_label  = "gc_type"
+    replacement   = "G1GC"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/gc-v-zgc-gen"
+    target_label  = "gc_type"
+    replacement   = "ZGC Generational"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/gc-v-zgc-plain"
+    target_label  = "gc_type"
+    replacement   = "ZGC Non-Generational"
+  }
+
+  // Common labels
+  rule {
+    target_label = "log_source"
+    replacement  = "app"
+  }
+  rule {
+    target_label = "job"
+    replacement  = "docker-logs"
+  }
+}
+
+loki.source.docker "spring_apps" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.spring_apps.output
+  forward_to = [loki.write.default.receiver]
+}
+
+// ── Write to Loki ───────────────────────────────────────────────
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

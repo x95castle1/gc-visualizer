@@ -51,6 +51,39 @@ services:
       - visualizer-zgc-gen
       - visualizer-zgc-plain
 
+  loki:
+    image: grafana/loki:3.4.2
+    container_name: gc-v-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.6.1
+    container_name: gc-v-alloy
+    ports:
+      - "12345:12345"
+    volumes:
+      - ./monitoring/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - ./logs:/var/log/gc-logs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      - --server.http.listen-addr=0.0.0.0:12345
+    restart: unless-stopped
+    depends_on:
+      - loki
+      - visualizer-g1
+      - visualizer-zgc-gen
+      - visualizer-zgc-plain
+
   grafana:
     image: grafana/grafana:latest
     container_name: gc-v-grafana
@@ -70,6 +103,7 @@ services:
     restart: unless-stopped
     depends_on:
       - prometheus
+      - loki
 
   log-streamer:
     image: node:18-alpine
@@ -119,4 +153,7 @@ services:
             tail.kill();
           });
         }).listen(3001);
-        
+
+volumes:
+  loki-data:
+  alloy-data:

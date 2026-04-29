@@ -1,5 +1,7 @@
 package com.gcvisualizer.workload;
 
+import io.micrometer.core.instrument.FunctionCounter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -48,6 +50,12 @@ public class WorkloadEngine {
     private volatile WorkloadProfile currentProfile = WorkloadProfile.MEDIUM;
 
     private final Random random = new Random();
+
+    public WorkloadEngine(MeterRegistry registry) {
+        FunctionCounter.builder("workload_tasks_completed", taskCounter, AtomicLong::doubleValue)
+                .description("Total allocation cycles completed by the workload engine")
+                .register(registry);
+    }
 
     public enum WorkloadProfile {
         LOW, MEDIUM, HIGH
